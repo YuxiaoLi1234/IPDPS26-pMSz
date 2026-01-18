@@ -5,13 +5,13 @@ This repository provides an **anonymous implementation** of **pMSz**, a distribu
 
 ### Files
 
-- **`pMSz.cu`**  
+- **`src/pMSz.cu`**  
   The proposed distributed parallel algorithm described in the paper.
 
-- **`sync_pMSz.cu`**  
+- **`src/sync_pMSz.cu`**  
   A baseline variant that synchronizes ghost layers after every iteration, used to study synchronization overhead.
 
-- **`naive_MSz.cu`**  
+- **`src/naive_MSz.cu`**  
   A direct distributed-memory parallelization of MSz that recomputes integral paths, included as a scalability baseline.
 
 ---
