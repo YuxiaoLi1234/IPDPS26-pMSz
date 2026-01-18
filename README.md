@@ -52,8 +52,15 @@ The code is compiled using `nvcc` with MPI as the host compiler.
 Example compilation command:
 
 ```bash
-nvcc -ccbin mpicxx -std=c++17 pMSz.cu -o pmsz \
-    -lzstd -lzfp -lsz3
+cd IPDPS26-pMSz && mkdir build \
+&& cd build \
+
+cmake -DCMAKE_BUILD_TYPE=Release \
+-DCMAKE_CUDA_COMPILER=nvcc \
+.. \
+
+make -j
+
 ```
 ---
 
