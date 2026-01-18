@@ -328,16 +328,13 @@ void exchange_ghost_layers(T* data, int padded_x, int padded_y, int padded_z,
     int req_idx = 0;
     std::vector<RecvBuffer> recv_buffers;
     MPI_Datatype dt = get_mpi_datatype<T>();
-    // printf("rank %d at [%d %d %d] with dimension [%d %d %d]\n", rank, coords[0], coords[1], coords[2], padded_x, padded_y, padded_z);
     for (int k = 0; k < maxNeighbors_host - 2; ++k) {
         int dx = directions_host1[3*k];
         int dy = directions_host1[3*k + 1];
         int dz = directions_host1[3*k + 2];
-        // printf("%d %d %d\n", dx, dy, dz);
         if (dx == 0 && dy == 0 && dz == 0) continue; // skip self
 
         int nbr_coords[3] = {coords[0] + dx, coords[1] + dy, coords[2] + dz};
-        // printf("%d %d %d\n", nbr_coords[0], nbr_coords[1], nbr_coords[2]);
         bool neighbor_exists = 
             (nbr_coords[0] >= 0 && nbr_coords[0] < dims[0] &&
              nbr_coords[1] >= 0 && nbr_coords[1] < dims[1] &&
@@ -386,7 +383,6 @@ void exchange_ghost_layers(T* data, int padded_x, int padded_y, int padded_z,
         MPI_Cart_rank(cart_comm, nbr_coords, &nbr_rank);
 
         int dir_tag = std::min(rank, nbr_rank) * 1000 + std::max(rank, nbr_rank);
-        // if(dir_tag == 1002) printf("%d %d\n", rank, nbr_rank);
         int send_count = 0;
         T* send_ptr = nullptr;
 
@@ -424,7 +420,6 @@ void exchange_ghost_layers(T* data, int padded_x, int padded_y, int padded_z,
             for (int y = 0; y < local_y; y++){
                 for (int x = 0; x < local_x; x++){
                     send_ptr[x + y * local_x] = data[z_send * padded_y * padded_x + (y + HALO) * padded_x + (x + HALO)];
-                    // if(x + y * local_x == 8318 && rank == 2) printf("rank 2 here: %.17f: [%d %d %d] = %d with tag: %d\n", send_ptr[x + y * local_x], x+ HALO, y+HALO, z_send, z_send * padded_y * padded_x + (y + HALO) * padded_x + (x + HALO), dir_tag);
                 }
             }
             
@@ -545,9 +540,7 @@ void exchange_ghost_layers(T* data, int padded_x, int padded_y, int padded_z,
             int y_recv = 0;
             for (int z = 0; z < local_z; z++){
                 data[(z + HALO) * padded_y * padded_x + y_recv * padded_x + x_recv] = rb.buffer[idx++];
-                // if(rank == 2) printf("rank 2 is receiving %d->Coords: %d %d %d, value is: %.17f ", (z + HALO) * padded_y * padded_x + y_recv * padded_x + x_recv, x_recv, y_recv, z, rb.buffer[idx]);
             }
-            // printf("\n");
                 
         }
         else if (rb.dx == -1 && rb.dy == 1 && rb.dz == 0) {
@@ -556,10 +549,7 @@ void exchange_ghost_layers(T* data, int padded_x, int padded_y, int padded_z,
             int y_recv = padded_y - 1;
             for (int z = 0; z < local_z; z++){
                 data[(z + HALO) * padded_y * padded_x + y_recv * padded_x + x_recv] = rb.buffer[z];
-            
-                // if(rank == 2) printf("tag is: %d at idx: %d rank 2 is receiving %d->Coords: %d %d %d, value is: %.17f\n ",rb.dir_tag, z, (z + HALO) * padded_y * padded_x + y_recv * padded_x + x_recv, x_recv, y_recv, z + HALO, rb.buffer[z]);
             }
-            // printf("\n");
                 
         }
         else if (rb.dx == 0 && rb.dy == -1 && rb.dz == 1) {
@@ -709,7 +699,6 @@ __global__ void iscriticle(int *DS_M, int *AS_M, int *de_direction_as, int *de_d
             if (static_cast<int64_t>(nx) < 0 || nx >= width_host || static_cast<int64_t>(ny) < 0 || ny >= height_host || nz < 0 || nz >= depth_host || neighbor >= data_size || (decp_data[neighbor] == INVALID_VAL)) continue;
             T neighbor_value = decp_data[neighbor];
             // uint16_t shared_neighbor_value = smem[smem_z][smem_y][smem_x];
-            // if(shared_neighbor_value != neighbor_value) printf("wrong here!\n");
             if (neighbor_value > data_value) {
                 is_maxima = false;
             }
@@ -740,9 +729,6 @@ __global__ void iscriticle(int *DS_M, int *AS_M, int *de_direction_as, int *de_d
                             (global_offset_y + ny) * w_temp +
                             (global_offset_x + nx);
             }
-        // }
-        
-        // if(data_type == 0 && i == 892 && rank == 0 ) printf("%lu %lu %u %u %u %u\n", neighbor, i, neighbor_value, data_value, input_data[neighbor] , input_data[i]);
     }
     
     
@@ -790,7 +776,6 @@ __global__ void iscriticle(int *DS_M, int *AS_M, int *de_direction_as, int *de_d
         if ((is_maxima &&  original_type!= -1) || (!is_maxima && original_type == -1)) {
             count_f_max+=1;
             fixFlag = true;
-            // if(rank == 0) printf("value at: %lu %d %.17f %.17f %.17f %.17f %.17f\n", i, or_types[2 * i + 1], data_value, input_data_value, input_data_value-bound, decp_data[or_types[2 * i + 1]], input_data[or_types[2 * i + 1]] - bound);
             if (original_type != -1 && checkFinal == 0) {
                 if (atomicCAS(&edits[i], 0, 1) == 0){
                     
@@ -817,7 +802,6 @@ __global__ void iscriticle(int *DS_M, int *AS_M, int *de_direction_as, int *de_d
 
             if (original_type != -2 && checkFinal == 0) {
                 int original_smallest_index = original_type == -1? or_types[2 * i + 1]:or_types[2 * i];
-                // if(rank == 0) printf("value at: %lu %d %u %u %u %u %u\n", i, original_smallest_index, data_value, input_data_value, input_data_value-bound, decp_data[original_smallest_index], input_data[original_smallest_index] - bound);
                 if (atomicCAS(&edits[original_smallest_index], 0, 1) == 0) {
                     applyDeltaBuffer_local<T>(delta_counter,
                                        decp_data, delta, input_data,
@@ -868,7 +852,6 @@ __global__ void iscriticle(int *DS_M, int *AS_M, int *de_direction_as, int *de_d
 
         if(largest_index != original_largest_index && maxOnly == 0){
             count_f_dir+=1;
-            // if(rank == 0 && largest_index == 1191898) printf("%lu %lu: %u %u %d: %u %u\n", rank, largest_index, decp_data[largest_index], input_data[largest_index] - bound, original_largest_index, decp_data[original_largest_index], input_data[original_largest_index] - bound);
             if (checkFinal == 0 && atomicCAS(&edits[largest_index], 0, 1) == 0) {
                 applyDeltaBuffer_local(delta_counter,
                                 decp_data, delta, input_data,
@@ -1001,7 +984,6 @@ __global__ void pack_send_buffer_two_layers_kernel(
     
     size_t gIdx = global_x + global_y * width_host + global_z * width_host * height_host;
     if(data[global_idx] == INVALID_VAL) return;
-    // if(rank ==0 && global_idx == 250) printf("wrong here: %lu, %lu, %u, %d %d %d\n", idx, global_idx, data[global_idx], dx, dy, dz);
     // sendbuf[2 * idx] = data[global_idx];
     // sendbuf[2 * idx + 1] = data[global_idx];
     if(delta_counter[global_idx] != 0){
@@ -1348,7 +1330,6 @@ void compressLocalDataZFP(const std::string file_path, std::string cpfilename, c
     double tolerance, std::string decpfilename, int rank, int processData = 0) 
 {
     size_t data_size = width_host * height_host * depth_host;
-    std::cout << "sub datasize: " << data_size << std::endl;
 
     // --- ZFP setup ---
     zfp_type type = (std::is_same<T, double>::value) ? zfp_type_double : zfp_type_float;
@@ -1379,7 +1360,7 @@ void compressLocalDataZFP(const std::string file_path, std::string cpfilename, c
 
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     double compression_time = double(duration.count()) / 1000.0;
-    std::cout << "Compression time: " << compression_time << " s, compressed size = " << zfpsize << " bytes" << std::endl;
+    std::cout << "Compression time: " << compression_time << " s" << std::endl;
 
     // Save compressed data if needed
     if (processData != 0) {
@@ -1422,7 +1403,7 @@ void compressLocalDataZFP(const std::string file_path, std::string cpfilename, c
     // --- Compression Ratio ---
     std::uintmax_t original_dataSize = std::filesystem::file_size(file_path);
     double cr = double(original_dataSize) / double(zfpsize);
-    std::cout << "Data read, compressed, and decompressed successfully: CR = " << cr << std::endl;
+    std::cout << "Data read, compressed, and decompressed successfully"<< std::endl;
 
     // --- Cleanup ---
     zfp_field_free(field);
@@ -1481,7 +1462,7 @@ void compressLocalDataZFP_coreOnly(const std::string file_path,
     if (zfpsize == 0) { std::cerr << "Compression failed!" << std::endl; return; }
 
     double compression_time = std::chrono::duration<double>(end - start).count();
-    std::cout << "Compression time: " << compression_time << " s, compressed size = " << zfpsize << " bytes" << std::endl;
+    std::cout << "Compression time: " << compression_time << " s" << std::endl;
 
     if (processData != 0) {
         std::ofstream outFile1(cpfilename, std::ios::binary);
@@ -1547,10 +1528,6 @@ void compressLocalData_coreOnly(const std::string file_path,
     size_t core_z = depth_host  - 2 * HALO;
     size_t core_size = core_x * core_y * core_z;
 
-    std::cout << "Full block = " << width_host << "×" << height_host << "×" << depth_host
-              << ", core = " << core_x << "×" << core_y << "×" << core_z
-              << ", core size = " << core_size << std::endl;
-
     T* core_buffer = new T[core_size];
     for (size_t z = 0; z < core_z; z++) {
         for (size_t y = 0; y < core_y; y++) {
@@ -1574,8 +1551,7 @@ void compressLocalData_coreOnly(const std::string file_path,
 
     auto end = std::chrono::high_resolution_clock::now();
     double compression_time = std::chrono::duration<double>(end - start).count();
-    std::cout << "Compression time: " << compression_time
-              << " s, cmpSize = " << cmpSize << " bytes" << std::endl;
+    std::cout << "Compression time: " << compression_time <<" s" << std::endl;
 
     if (processData != 0) {
         std::ofstream outFile1(cpfilename, std::ios::binary);
@@ -1615,8 +1591,7 @@ void compressLocalData_coreOnly(const std::string file_path,
 
     std::uintmax_t original_dataSize = std::filesystem::file_size(file_path);
     double cr = double(original_dataSize) / cmpSize;
-    std::cout << "CR (core-only compressed): " << cr << std::endl;
-
+    
     // === Cleanup ===
     delete[] core_buffer;
     delete[] core_decomp;
@@ -1638,11 +1613,7 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
     conf.absErrorBound = bound; 
 
     size_t data_size = width_host * height_host * depth_host;
-    std::cout<<"sub datasize: "<< data_size <<std::endl;
-    
     char *compressedData = SZ_compress(conf, input_data_host, cmpSize);
-
-    std::cout<<"compression over: "<< cmpSize<<std::endl;
 
     decp_data_host = new T[data_size];
     auto end = std::chrono::high_resolution_clock::now();
@@ -1655,7 +1626,6 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
     SZ_decompress(conf, compressedData, cmpSize, decp_data_host);
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    std::cout<< "decompression time: "<< duration.count() <<std::endl;
     
     if(processData!=0) {
         std::ofstream outFile1(cpfilename, std::ios::binary);
@@ -1665,7 +1635,6 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
         } else {
             outFile1.write(compressedData, cmpSize);
             outFile1.close();
-            std::cout << "Compressed data saved to compressed_output.sz" << std::endl;
         }
     }
 
@@ -1679,13 +1648,12 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
         }
         outFile.write(reinterpret_cast<const char*>(decp_data_host), data_size * sizeof(T));
         outFile.close();
-        std::cout << "Decompressed data saved to decompressed_data.bin" << std::endl;
     }
     
     std::uintmax_t original_dataSize = std::filesystem::file_size(file_path);
     double cr = double(original_dataSize) / cmpSize;
     
-    std::cout << "Data read, compressed, and decompressed successfully: "<<cr << std::endl;
+    std::cout << "Data read, compressed, and decompressed successfully"<< std::endl;
 }
 
 template <typename T>
@@ -1830,12 +1798,11 @@ __global__ void extract_false_path(T *decp_data, T *input_data,
             
             int false_index= de_direction_as[cur];
             int true_index= or_types[cur * 2 + 1];
-            // if(rank == 2) printf("value at: %lu %d %d %.17f %.17f %.17f %.17f\n", i, false_index, true_index,  decp_data[true_index], input_data[true_index] - bound, decp_data[false_index], input_data[false_index] - bound);
+            
             if(false_index!=true_index){
 
                 if (atomicCAS(&edits[false_index], 0, 1) == 0){
                     
-                    // if(rank == 0 && i == 29892) printf("value at: %lu %d %d %.17f %.17f %.17f %.17f %.17f\n", i, false_index, true_index,  decp_data[true_index], input_data[true_index] - bound,decp_data[false_index], input_data[false_index] - bound);
                     applyDeltaBuffer_local<T>(delta_counter,
                                         decp_data, delta, input_data,
                                         bound, q, rank, ite,
@@ -1934,7 +1901,7 @@ void c_loops(size_t data_size, T *input_data_host, T *decp_data_host, size_t pad
     int h_un_sign_as = data_size,
         h_un_sign_ds = data_size;
     
-    std::cout<<"topology preserving started!"<<std::endl;
+    
     fflush(stdout);
     MPI_Barrier(cart_comm);
     start_time = MPI_Wtime();
@@ -2069,8 +2036,6 @@ void c_loops(size_t data_size, T *input_data_host, T *decp_data_host, size_t pad
         
     }
 
-    
-    if(rank == 0) printf("iteration is: %d\n", ite);
 }
 
 
@@ -2114,7 +2079,7 @@ __global__ void extract_edits_kernel(
     T previousV = decp_data_copy[i];
     
     if (currentV != previousV) {
-        // if(rank == 0) printf("2 here : %d %d %d %d %d %d\n", x, y, z, padded_x, padded_y, padded_z);
+        
         if(currentV < previousV){
             unsigned int idx = atomicAdd(d_edit_count, 1);
             // diffs_out[idx] = i;
@@ -2201,8 +2166,6 @@ void run_extract_edits(
     
     cudaMemcpy(&h_count, d_edit_count, sizeof(unsigned int), cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
-
-    printf("Edit count: %u\n", h_count);
 
     thrust::device_vector<T> d_edit_val_compact;
     compact_edits_dense_to_sparse<T>(d_edits, data_size, d_edit_val_compact);
@@ -2461,31 +2424,26 @@ void gather_cost_sparse(std::string file_path, std::string filename, T* decp_dat
 
 
     double t1 = MPI_Wtime();
-    if (rank == 0) std::cout << "[Time] extract_edits: " << t1 - t0 << " s\n";
     edits_time.push_back(t1-t0);
 
 
     MPI_Barrier(comm);
     double t2 = MPI_Wtime();
-    if (rank == 0) std::cout << "[Time] encode_diffs: " << t2 - t1 << " s"<< "with size: "<< diffs.size()<<"\n";
     
     std::vector<uint8_t> comp_diffs  = {};
     std::vector<uint8_t> comp_edits  = compress_zstd<T>(edits);
     std::vector<uint8_t> comp_deltas = compress_zstd<uint8_t>(deltas);
     std::vector<uint8_t> comp_edit_pos = {};
     
-    std::cout << "compressed deltas: "<< comp_deltas.size()<< ", " << comp_edits.size() << ", "<< comp_edit_pos.size() <<std::endl;
     size_t packed_bytes = 0;
 
     comp_deltas = compress_symbols_0_N(deltas, /*N=*/q, /*level=*/5);
-    std::cout << "packed_bytes=" << packed_bytes
-            << ", compressed=" << comp_deltas.size() << " bytes\n";
-
+    
 
     double t3 = MPI_Wtime();
     
     size_t sz_diff = comp_diffs.size(), sz_edit = comp_edits.size(), sz_edit_pos = comp_edit_pos.size(), sz_delta = comp_deltas.size();
-    if (rank == 0) std::cout << "[Time] compress: " << t3 - t2 <<", "<< sz_diff <<"/" << diffs.size() * 8 << " s\n";
+    
     edits_time.push_back(t3-t2);
     std::vector<size_t> all_sz_diff(world_size), all_sz_edit(world_size), all_sz_edit_pos(world_size), all_sz_delta(world_size);
     
@@ -2493,10 +2451,8 @@ void gather_cost_sparse(std::string file_path, std::string filename, T* decp_dat
     MPI_Allgather(&sz_edit, 1, MPI_UINT64_T, all_sz_edit.data(), 1, MPI_UINT64_T, comm);
     
     storageOverhead = sz_diff + sz_edit + sz_delta + sz_edit_pos;
-    // compute offsets
-    // std::cout<<"deltas size: "<<sz_delta<<std::endl;
-    std::vector<size_t> off_diff(world_size, 0), off_edit(world_size, 0), off_delta(world_size, 0), off_edit_pos(world_size, 0);
     
+    std::vector<size_t> off_diff(world_size, 0), off_edit(world_size, 0), off_delta(world_size, 0), off_edit_pos(world_size, 0);
     for (int i = 1; i < world_size; ++i) {
         // off_diff[i]  = off_diff[i-1]  + all_sz_diff[i-1];
         off_edit[i]  = off_edit[i-1]  + all_sz_edit[i-1];
@@ -2507,7 +2463,6 @@ void gather_cost_sparse(std::string file_path, std::string filename, T* decp_dat
     
     MPI_Barrier(comm);
     double t4 = MPI_Wtime();
-    if (rank == 0) std::cout << "[Time] offset size: " << t4 - t3 << " s\n";
     
     MPI_File f_diff, f_edit, f_delta, f_edit_pos;
     std::string prefix = filename;
@@ -2536,7 +2491,6 @@ void gather_cost_sparse(std::string file_path, std::string filename, T* decp_dat
 
     MPI_Barrier(comm);
     double t5 = MPI_Wtime();
-    if (rank == 0) std::cout << "[Time] MPI write: " << t5 - t4 << " s\n";
     edits_time.push_back(t5-t4);
     
     return; 
@@ -2568,18 +2522,10 @@ void validateResult(T *decp_data, T*decp_data_copy, size_t numElements, size_t e
     std::vector<uint8_t> comp_deltas(file_size_delta);
     MPI_File_read_at_all(f_delta, 0, comp_deltas.data(), file_size_delta, MPI_BYTE, MPI_STATUS_IGNORE);
     MPI_File_close(&f_delta);
-
-    std::cout << "[Rank 0] Loaded compressed files. Sizes: " 
-              << comp_edits.size() << " (edits), " 
-              << comp_deltas.size() << " (deltas)" << std::endl;
-
     
     std::vector<T> edits = decompress_zstd_to_vector<T>(comp_edits, expected_size);
-    std::cout << "[Rank 0] Decompressed sizes: " << edits.size() << std::endl;
     
     std::vector<uint8_t> deltas = decompress_symbols_0_N(comp_deltas.data(), file_size_delta, numElements, /*N=*/q  /*expected_size=*/);
-    
-    std::cout << "[Rank 0] Decompressed sizes: " << edits.size() << " edits, " << deltas.size() << " deltas" << std::endl;
     return;
 }
 
@@ -2743,9 +2689,6 @@ int main(int argc, char** argv) {
     cudaFree(d_data);
     MPI_Barrier(MPI_COMM_WORLD);
     if (rank == 0) std::cout << "Starting benchmark..." << std::endl;
-    
-    // std::cout<<"rank: "<< rank<<", "<< padded_x<<", " <<padded_y <<", "<<padded_z<<std::endl;
-    // std::cout<<"rank: "<< rank<<", "<< local_x<<", " <<local_y <<", "<<local_z<<std::endl;
     size_t data_size = static_cast<int>(padded_x) * padded_y * padded_z;
     
    
@@ -2770,7 +2713,7 @@ int main(int argc, char** argv) {
 
     int result = 0;
     std::string command;
-    if(rank == 0 && compression == 1 && compression_mode == 0){
+    if(rank == 0){
         double range  = bound;
         
         input_data = new double[num_Elements];
@@ -2779,10 +2722,8 @@ int main(int argc, char** argv) {
         oss1 << std::scientific << std::setprecision(17) << bound;
         // if(compression_mode == 0) bound = bound * (maxValue - minValue);
         cpfilename = "../datasets/compressed_"+filename+"_"+std::to_string(bound)+".sz";
-        if(compressor_id == "sz3") {
-            
+        if(compressor_id == "sz3") { 
             compressLocalData<double>(file_path, cpfilename, filename, input_data, decp_data, width_host, height_host, depth_host, bound, decpfilename, rank, 1);
-
         }
         else if(compressor_id=="zfp"){
             auto start = std::chrono::high_resolution_clock::now();
@@ -2799,9 +2740,6 @@ int main(int argc, char** argv) {
     
 
     MPI_Bcast(&bound, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    
-    std::cout << "Rank " << rank << " got value = " << bound << std::endl;
-    std::cout<<decpfilename<<std::endl;
     
 
     if(rank == 0){
@@ -2840,7 +2778,6 @@ int main(int argc, char** argv) {
     }
 
     cudaMalloc(&delta_counter, data_size * sizeof(uint8_t));
-    
     cudaMalloc(&edits, data_size * sizeof(int));
     cudaMemset(edits, 0, data_size * sizeof(int));  
     
@@ -2920,7 +2857,6 @@ int main(int argc, char** argv) {
     );
     
     MPI_Barrier(cart_comm);
-    int c1 = 0;  
     std::ofstream outFilep("../gannt_results/pMSz/"+filename+"_"+compressor_id+"_rank_"+std::to_string(rank)+".txt", std::ios::app);
            
    
@@ -2949,7 +2885,6 @@ int main(int argc, char** argv) {
         end_time = MPI_Wtime();
 
         additional_time = end_time - start_time_t;
-        std::cout<<"comfputational overhead is: "<< end_time - start_time_t<<std::endl;
     }
         
 
@@ -2996,8 +2931,6 @@ int main(int argc, char** argv) {
         double end2end1 = MPI_Wtime();
         WholeTime = end2end1 - end2end;
         editsTime = end2end1 - start_time;
-        std::cout<<"whole time: "<< WholeTime <<"s "<<std::endl;
-
     }
 
 
@@ -3071,7 +3004,6 @@ int main(int argc, char** argv) {
             fflush(stdout);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
-        std::cout<<num_Elements<<std::endl;
         iscriticle<double><<<gridSize, blockSize>>>(DS_M, AS_M, nullptr, nullptr, nullptr, device_input_all, device_input_all, edits, nullptr,
             width_host, height_host, depth_host, num_Elements, or_types, offset_x, offset_y, offset_z, width_host, height_host, rank, nullptr, q, bound, delta, ite, uTh, lTh, 1, 1, 1);
         err = cudaDeviceSynchronize();
@@ -3123,7 +3055,6 @@ int main(int argc, char** argv) {
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
 
-        std::cout<<"number of false cases: "<< host_count_f_dir<<", "<<host_count_f_max<<std::endl;
 
         
     }
@@ -3140,11 +3071,11 @@ int main(int argc, char** argv) {
         double OCR = double(original_dataSize) / (total_cmpsize + total_storageOverhead);
         double edit_ratio = double(total_edited) / num_Elements;
         
-        std::cout<<"total storage overhead is: "<<total_storageOverhead<<std::endl;
-        
-        std::cout<<"original CR is: "<< CR << std::endl;
-        std::cout<<"overall CR is: "<< OCR << std::endl;
-        std::cout<<"overall edit ratio is: "<< edit_ratio << " total_edited:" << total_edited<< std::endl;
+        std::cout<<"Total storage overhead is: "<<total_storageOverhead<<std::endl;
+        std::cout<<"Correction time: "<< WholeTime <<"s "<<std::endl;
+        std::cout<<"Original CR is: "<< CR << std::endl;
+        std::cout<<"Overall CR is: "<< OCR << std::endl;
+        std::cout<<"Edit ratio is: "<< edit_ratio<< std::endl;
         
         std::ofstream outFile3("../stat_result/"+result_dir+"/pMSz/"+filename+"_"+compressor_id+"_"+std::to_string(size)+".txt", std::ios::app);
     
@@ -3165,8 +3096,6 @@ int main(int argc, char** argv) {
 
         outFile3 << std::endl;
         outFile3 << "\n" << std::endl;
-
-        std::cout << "Variables have been appended to output.txt" << std::endl;
 
     }
     

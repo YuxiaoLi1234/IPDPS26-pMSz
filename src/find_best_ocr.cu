@@ -264,9 +264,7 @@ __global__ void iscriticle(T *input_data, T *decp_data,
                 smallest_value = neighbor_value;
                 
             }
-        // }
         
-        // if(data_type == 0 && i == 892 && rank == 0 ) printf("%lu %lu %u %u %u %u\n", neighbor, i, neighbor_value, data_value, input_data[neighbor] , input_data[i]);
     }
     
     
@@ -360,11 +358,8 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
     conf.absErrorBound = bound; 
 
     size_t data_size = width_host * height_host * depth_host;
-    std::cout<<"sub datasize: "<< data_size <<std::endl;
-    
-    char *compressedData = SZ_compress(conf, input_data_host, cmpSize);
 
-    std::cout<<"compression over: "<< cmpSize<<std::endl;
+    char *compressedData = SZ_compress(conf, input_data_host, cmpSize);
 
     decp_data_host = new T[data_size];
     auto end = std::chrono::high_resolution_clock::now();
@@ -377,9 +372,7 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
     SZ_decompress(conf, compressedData, cmpSize, decp_data_host);
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    std::cout<< "decompression time: "<< duration.count() <<std::endl;
     
-
     delete[] compressedData;
 
     
@@ -387,7 +380,6 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
     std::uintmax_t original_dataSize = std::filesystem::file_size(file_path);
     double cr = double(original_dataSize) / cmpSize;
     
-    std::cout << "Data read, compressed, and decompressed successfully." << std::endl;
 }
 
 template <typename T>
@@ -577,7 +569,6 @@ int main(int argc, char** argv) {
     cudaMemcpyFromSymbol(&host_count_f_min, count_f_min, sizeof(unsigned int), 0, cudaMemcpyDeviceToHost);
     cudaMemcpyFromSymbol(&host_count_f_dir, count_f_dir, sizeof(unsigned int), 0, cudaMemcpyDeviceToHost);
 
-    std::cout<< host_count_f_max<< ", " << host_count_f_min <<", "<< host_count_f_dir <<std::endl;
     int ite = 0;
     while((host_count_f_max!=0 || host_count_f_min !=0 || host_count_f_dir != 0) && ite < 20 && bound >= 1e-14){
         err = cudaMemcpyToSymbol(count_f_max, &initialValue, sizeof(unsigned int));
@@ -603,7 +594,7 @@ int main(int argc, char** argv) {
     }
     size_t raw_size = width_host * height_host * depth_host * sizeof(double);
     if(host_count_f_max == 0 && host_count_f_min == 0 && host_count_f_dir == 0){
-        std::cout<< "bound founded at: " << bound << "CR is: " << (double) raw_size / (double) cmpSize << std::endl;
+        std::cout<< "bound founded at: " << bound << " CR is: " << (double) raw_size / (double) cmpSize << std::endl;
     }
     else{
         std::cout<<"bound not founded: " << bound << ", set to lossless" <<std::endl;

@@ -1,1 +1,0 @@
-/opt/nvidia/hpc_sdk/Linux_x86_64/24.5/cuda/12.4/bin/nvcc -forward-unknown-to-host-compiler -ccbin=mpicxx -O3 -DNDEBUG --generate-code=arch=compute_52,code=[compute_52,sm_52] -Xcompiler=-fPIC -Wno-deprecated-gpu-targets -shared -dlink CMakeFiles/naive_MSz.dir/src/naive_MSz.cu.o -o CMakeFiles/naive_MSz.dir/cmake_device_link.o   -lcudadevrt -lcudart_static -lrt -lpthread -ldl 

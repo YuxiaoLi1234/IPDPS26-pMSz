@@ -104,7 +104,16 @@ for data in "${datasets[@]}"; do
     for comp in "${compressors[@]}"; do
         for eb in "${bounds[@]}"; do
         echo "Run=$run, EB=$eb, Dataset=$data, Compressor=$comp"
-        srun -n 16 ./distributed_MSz_64 $data $eb $comp 4 4 1
+        srun -n 16 ./pMSz $data $eb $comp 4 4 1
+        done
+    done
+done
+
+for data in "${datasets[@]}"; do
+    for comp in "${compressors[@]}"; do
+        for eb in "${bounds[@]}"; do
+        echo "Run=$run, EB=$eb, Dataset=$data, Compressor=$comp"
+        srun -n 1 ./find_best_ocr $data $eb $comp
         done
     done
 done

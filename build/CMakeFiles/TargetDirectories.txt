@@ -1,5 +1,0 @@
-/global/homes/y/yuxiaoli/pmsz_anonymous/build/CMakeFiles/rebuild_cache.dir
-/global/homes/y/yuxiaoli/pmsz_anonymous/build/CMakeFiles/edit_cache.dir
-/global/homes/y/yuxiaoli/pmsz_anonymous/build/CMakeFiles/naive_MSz.dir
-/global/homes/y/yuxiaoli/pmsz_anonymous/build/CMakeFiles/sync_pMSz.dir
-/global/homes/y/yuxiaoli/pmsz_anonymous/build/CMakeFiles/pMSz.dir
