@@ -32,7 +32,7 @@
 
 double additional_time = 0.0;
 double compression_time = 0.0;
-size_t cmpSize = 0;
+std::uintmax_t cmpSize = 0;
 double maxValue, minValue;
 std::uintmax_t storageOverhead = 0;
 size_t edit_cnt = 0;
@@ -1546,7 +1546,6 @@ void compressLocalData_coreOnly(const std::string file_path,
     conf.errorBoundMode = SZ3::EB_ABS;
     conf.absErrorBound = bound;
 
-    size_t cmpSize = 0;
     char *compressedData = SZ_compress(conf, core_buffer, cmpSize);
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -2576,8 +2575,10 @@ int main(int argc, char** argv) {
     PX = std::stoi(argv[4]);
     PY = std::stoi(argv[5]);
     PZ = std::stoi(argv[6]); 
-
-    std::string result_dir = (argc > 7) ? argv[7] : "";
+    int preserve_decompressed = (argc > 7) ? std::stoi(argv[7]) : 0;
+    std::string decompressed_result_dir = (argc > 8) ? argv[8] : "";
+    std::string result_dir = (argc > 9) ? argv[9] : "";
+    
     
     check = 0; 
     int target_z = 0;
@@ -2912,7 +2913,7 @@ int main(int argc, char** argv) {
     std::vector<double> core(local_x * local_y * local_z);
     std::vector<double> global, global_copy;
 
-        
+    
 
 
     if(weakscaling == 0) {
@@ -2944,7 +2945,7 @@ int main(int argc, char** argv) {
 
     
     std::uintmax_t total_cmpsize = 0;
-    MPI_Reduce(&cmpSize, &total_cmpsize, 1, MPI_UNSIGNED_SHORT, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&cmpSize, &total_cmpsize, 1, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
     
     std::uintmax_t total_storageOverhead = 0;
     MPI_Reduce(&storageOverhead, &total_storageOverhead, 1, MPI_UINT64_T, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -2975,16 +2976,9 @@ int main(int argc, char** argv) {
         double *device_input_all, *device_decp_all;
         dim3 blockSize(256);
         dim3 gridSize((num_Elements + blockSize.x - 1) / blockSize.x);
-        
 
-        err = cudaMalloc(&DS_M, num_Elements * sizeof(int));
-        err = cudaMalloc(&dec_DS_M, num_Elements * sizeof(int));
-        err = cudaMalloc(&AS_M, num_Elements * sizeof(int));
-        err = cudaMalloc(&dec_AS_M, num_Elements * sizeof(int));
-        err = cudaMalloc((void**)&device_input_all, num_Elements * sizeof(double));
         err = cudaMalloc((void**)&device_decp_all, num_Elements * sizeof(double));
-        
-        cudaMemcpy(device_input_all, input_data, num_Elements * sizeof(double), cudaMemcpyHostToDevice);
+       
         cudaMemcpy(device_decp_all, global.data(), num_Elements * sizeof(double), cudaMemcpyHostToDevice);
         cudaDeviceSynchronize();
 
@@ -2999,64 +2993,20 @@ int main(int argc, char** argv) {
 
         fout.close();
 
-        if (err != cudaSuccess) {
-            printf("Rank %d: before gathering: %s\n", rank, cudaGetErrorString(err));
-            fflush(stdout);
-            MPI_Abort(MPI_COMM_WORLD, -1);
-        }
-        iscriticle<double><<<gridSize, blockSize>>>(DS_M, AS_M, nullptr, nullptr, nullptr, device_input_all, device_input_all, edits, nullptr,
-            width_host, height_host, depth_host, num_Elements, or_types, offset_x, offset_y, offset_z, width_host, height_host, rank, nullptr, q, bound, delta, ite, uTh, lTh, 1, 1, 1);
-        err = cudaDeviceSynchronize();
-        if (err != cudaSuccess) {
-            printf("Rank %d: before compression failed: %s\n", rank, cudaGetErrorString(err));
-            fflush(stdout);
-            MPI_Abort(MPI_COMM_WORLD, -1);
-        }
-        iscriticle<double><<<gridSize, blockSize>>>(dec_DS_M, dec_AS_M, nullptr, nullptr, nullptr, device_decp_all, device_decp_all, edits, nullptr, 
-            width_host, height_host, depth_host, num_Elements, or_types, offset_x, offset_y, offset_z, width_host, height_host, rank, nullptr, q, bound, delta, ite, uTh, lTh, 1, 1, 1);
-        err = cudaDeviceSynchronize();
-        if (err != cudaSuccess) {
-            printf("Rank %d: before compression failed: %s\n", rank, cudaGetErrorString(err));
-            fflush(stdout);
-            MPI_Abort(MPI_COMM_WORLD, -1);
-        }
-
-        int *un_sign_as;
-        cudaMalloc((void**)&un_sign_as, sizeof(int));
-        cudaMemset(un_sign_as, 0, sizeof(int));
-
         
-        PathCompression<<<gridSize, blockSize>>>(DS_M, num_Elements, width_host, height_host, depth_host, 0);
-        cudaDeviceSynchronize();
-        PathCompression<<<gridSize, blockSize>>>(AS_M, num_Elements, width_host, height_host, depth_host, 0);
-        cudaDeviceSynchronize();
+    }
 
-        PathCompression<<<gridSize, blockSize>>>(dec_DS_M, num_Elements, width_host, height_host, depth_host, 0);
-        cudaDeviceSynchronize();
-        PathCompression<<<gridSize, blockSize>>>(dec_AS_M, num_Elements, width_host, height_host, depth_host, 0);
-        cudaDeviceSynchronize();
-        
-        unsigned int host_count_f_dir = 0, host_count_f_max = 0;
-        int initialValue = 0;
-        cudaMemcpyToSymbol(count_f_dir, &initialValue, sizeof(unsigned int));
-        cudaMemcpyToSymbol(count_f_max, &initialValue, sizeof(unsigned int));
-        err = cudaDeviceSynchronize();
-
-        count_false_cases<<<gridSize, blockSize>>>(DS_M, dec_DS_M, AS_M, dec_AS_M, 
-            num_Elements, width_host, height_host, depth_host);
-        err = cudaDeviceSynchronize();
-
-        cudaMemcpyFromSymbol(&host_count_f_dir, count_f_dir, sizeof(unsigned int), 0, cudaMemcpyDeviceToHost);
-        cudaMemcpyFromSymbol(&host_count_f_max, count_f_max, sizeof(unsigned int), 0, cudaMemcpyDeviceToHost);
-        err = cudaDeviceSynchronize();
-        if (err != cudaSuccess) {
-            printf("Rank %d: before compression failed: %s\n", rank, cudaGetErrorString(err));
-            fflush(stdout);
-            MPI_Abort(MPI_COMM_WORLD, -1);
+    if(preserve_decompressed == 1){
+        for (size_t z = 0; z < local_z; z++) {
+            for (size_t y = 0; y < local_y; y++) {
+                for (size_t x = 0; x < local_x; x++) {
+                    core[z*local_y*local_x + y*local_x + x] =
+                        decp_data_host[(z+HALO)*padded_y*padded_x +
+                                        (y+HALO)*padded_x +
+                                        (x+HALO)];
+                }
+            }
         }
-
-
-        
     }
 
     if(rank == 0){
@@ -3097,10 +3047,76 @@ int main(int argc, char** argv) {
         outFile3 << std::endl;
         outFile3 << "\n" << std::endl;
 
+
+        
+        global.resize(num_Elements);
+
+        for (size_t z = 0; z < local_z; z++) {
+            for (size_t y = 0; y < local_y; y++) {
+                for (size_t x = 0; x < local_x; x++) {
+                    size_t gx = offset_x + x;
+                    size_t gy = offset_y + y;
+                    size_t gz = offset_z + z;
+                    size_t gidx = (gz*global_y + gy)*global_x + gx;
+
+                    global[gidx] = core[z*local_y*local_x + y*local_x + x];
+                }
+            }
+        }
+
+        for (int src = 1; src < size; src++) {
+            MPI_Status status;
+            size_t sizes[6];
+            MPI_Recv(sizes, 6, MPI_UNSIGNED_LONG_LONG, src, 0, MPI_COMM_WORLD, &status);
+
+            size_t lx = sizes[0], ly = sizes[1], lz = sizes[2];
+            size_t ox = sizes[3], oy = sizes[4], oz = sizes[5];
+
+            std::vector<uint16_t> buf(lx * ly * lz);
+            MPI_Recv(buf.data(), buf.size(), MPI_UINT16_T, src, 1, MPI_COMM_WORLD, &status);
+
+
+            // 拷贝到 global
+            for (size_t z = 0; z < lz; z++) {
+                for (size_t y = 0; y < ly; y++) {
+                    for (size_t x = 0; x < lx; x++) {
+                        size_t gx = ox + x;
+                        size_t gy = oy + y;
+                        size_t gz = oz + z;
+                        size_t gidx = (gz*global_y + gy)*global_x + gx;
+                        size_t lidx = (z*ly + y)*lx + x;
+                        global[gidx] = buf[lidx];
+                    }
+                }
+            }
+        }
+
+            
     }
-    
-    
-    
+    else {
+        size_t sizes[6] = {local_x, local_y, local_z, offset_x, offset_y, offset_z};
+        MPI_Send(sizes, 6, MPI_UNSIGNED_LONG_LONG, 0, 0, MPI_COMM_WORLD);
+        MPI_Send(core.data(), core.size(), MPI_UINT16_T, 0, 1, MPI_COMM_WORLD);
+    }
+    MPI_Barrier(cart_comm);
+    if(rank == 0 && preserve_decompressed == 1){
+        std::ofstream fout(decompressed_result_dir + "_fixed_"+filename + std::to_string(bound) + "_" + compressor_id+ ".bin", std::ios::out | std::ios::binary);
+            if (!fout) {
+                std::cerr << "Error: cannot open file\n";
+                return -1;
+            }
+
+            // 写入数据：data.size() * sizeof(double) 个字节
+            fout.write(reinterpret_cast<const char*>(global.data()), global.size() * sizeof(uint16_t));
+            
+            fout.close();
+            std::cout<<"file wring ended: " <<decompressed_result_dir + "_fixed_"+filename + std::to_string(bound) + "_" + compressor_id+ ".bin"<<std::endl;
+            if (err != cudaSuccess) {
+                printf("Rank %d: before gathering: %s\n", rank, cudaGetErrorString(err));
+                fflush(stdout);
+                MPI_Abort(MPI_COMM_WORLD, -1);
+        }
+    }
     MPI_Finalize();
     return 0;
 }
