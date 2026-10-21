@@ -27,6 +27,7 @@ endif()
 # ========================
 find_package(OpenMP REQUIRED)
 find_package(MPI REQUIRED)
+include(CTest)
 
 # ZSTD / ZFP (library only)
 find_library(ZSTD_LIB zstd REQUIRED)
@@ -56,6 +57,7 @@ endif()
 # SZ3 autodetection
 # ========================
 option(USE_SZ3 "Enable SZ3 support" ON)
+option(PMSZ_USE_UINT16 "Build all executables with uint16_t data path (default: double)" OFF)
 
 set(SZ3_FOUND FALSE)
 set(SZ3_TARGET "")
@@ -163,6 +165,10 @@ function(add_pmsz_exe exe_name cu_file)
     target_link_libraries(${exe_name} PRIVATE ${SZ3_TARGET})
     target_compile_definitions(${exe_name} PRIVATE USE_SZ3=1)
   endif()
+
+  if(PMSZ_USE_UINT16)
+    target_compile_definitions(${exe_name} PRIVATE PMSZ_USE_UINT16=1)
+  endif()
 endfunction()
 
 # ========================
@@ -172,3 +178,13 @@ add_pmsz_exe(pMSz          ${CMAKE_SOURCE_DIR}/src/pMSz.cu)
 add_pmsz_exe(sync_pMSz     ${CMAKE_SOURCE_DIR}/src/sync_pMSz.cu)
 add_pmsz_exe(naive_MSz     ${CMAKE_SOURCE_DIR}/src/naive_MSz.cu)
 add_pmsz_exe(find_best_ocr ${CMAKE_SOURCE_DIR}/src/find_best_ocr.cu)
+
+if(BUILD_TESTING)
+  add_executable(datatype_smoke ${CMAKE_SOURCE_DIR}/src/datatype_smoke.cu)
+  set_target_properties(datatype_smoke PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+  target_link_libraries(datatype_smoke PRIVATE MPI::MPI_CXX ${ZFP_LIB})
+  if(PMSZ_USE_UINT16)
+    target_compile_definitions(datatype_smoke PRIVATE PMSZ_USE_UINT16=1)
+  endif()
+  add_test(NAME datatype_smoke COMMAND datatype_smoke)
+endif()

@@ -62,6 +62,28 @@ cmake -DCMAKE_BUILD_TYPE=Release \
 make -j
 
 ```
+
+### Datatype selection (default: `double`)
+
+The executables are built as **double precision** by default.
+
+- Default (double):
+  ```bash
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+  cmake --build build -j
+  ```
+- `uint16_t` mode:
+  ```bash
+  cmake -S . -B build-u16 -DCMAKE_BUILD_TYPE=Release -DPMSZ_USE_UINT16=ON
+  cmake --build build-u16 -j
+  ```
+
+In `PMSZ_USE_UINT16=ON` mode, input files are expected to be **little-endian raw `uint16_t`** binaries.
+Value `65535` is reserved as an internal halo sentinel and is rejected at load time.
+
+For ZFP with `uint16_t`, the implementation uses an explicit conversion path
+(`uint16_t -> float -> ZFP -> float -> uint16_t`) with range checks and rounding.
+No pointer reinterpret-cast between `uint16_t*` and `double*` is used.
 ---
 
 ## Running the Code
@@ -79,6 +101,8 @@ srun -n <num_mpi_ranks> ./pmsz \
     <compressor_name> \
     <mpi_dim_x> <mpi_dim_y> <mpi_dim_z>
 ```
+
+When built with `-DPMSZ_USE_UINT16=ON`, keep the same CLI arguments and provide `uint16_t` binary input.
 
 ### Parameters
 
