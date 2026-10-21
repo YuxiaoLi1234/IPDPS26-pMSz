@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstdio>
+#include "pmsz_datatype.hpp"
 double additional_time = 0.0;
 double compression_time = 0.0;
 size_t cmpSize = 0;
@@ -40,6 +41,7 @@ int check = 0;
 double editsTime = 0;
 __device__ bool filtered = false;
 std::vector<std::vector<float>> time_counter;
+using DataType = pmsz::DataType;
 // ===== Simple MPI phase timer (drop-in) =====
 
 
@@ -155,7 +157,7 @@ std::vector<std::map<std::string, double>> times;
 std::vector<double> comm_time, comp_time, pack_time, send_time;
 int maxNeighbors_host = 14;
 __device__ int maxNeighbors = 14;
-double *sendbuff_right, *recvbuff_right, 
+DataType *sendbuff_right, *recvbuff_right, 
 *sendbuff_left, *recvbuff_left, 
 *sendbuff_top, *recvbuff_top, 
 *sendbuff_bottom, *recvbuff_bottom,
@@ -172,7 +174,7 @@ __device__ unsigned int count_f_max = 0, count_f_min = 0, edit_count = 0, count_
 double delta;
 int threshold, q;
 struct RecvBuffer {
-    double* buffer;
+    DataType* buffer;
     int dx, dy, dz;
     int dir_tag;
 };
@@ -209,7 +211,7 @@ int directions_host1[42] =
 
 #define IDX(x, y, z, dimx, dimy) ((z) * (dimx) * (dimy) + (y) * (dimx) + (x))
 
-const double INVALID_VAL = 1e30;
+const DataType INVALID_VAL = pmsz::invalid_val<DataType>();
 
 struct Ghost {
     int global_id = -1;
@@ -902,7 +904,7 @@ __global__ void pack_sparse_modified_indices_kernel(
 }
 
 __global__ void unpack_sparse_edits_kernel(
-    double* __restrict__ data,
+    DataType* __restrict__ data,
     
     uint8_t* __restrict__ delta_counter,
     int* __restrict__ edits,
@@ -940,7 +942,7 @@ __global__ void unpack_sparse_edits_kernel(
 
 template <typename T>
 __global__ void pack_send_buffer_two_layers_kernel(
-    const double* __restrict__ data, 
+    const DataType* __restrict__ data, 
     int* edits, uint8_t *delta_counter,
     T* __restrict__ sendbuf,
     size_t padded_x, size_t padded_y, size_t padded_z,
@@ -1023,8 +1025,8 @@ __global__ void pack_send_buffer_two_layers_kernel(
 
 template <typename T>
 __global__ void unpack_recv_buffer_two_layers_kernel(
-    double* __restrict__ data,
-    double* input_data, double bound,
+    DataType* __restrict__ data,
+    DataType* input_data, double bound,
     uint8_t* delta_counter, int *edits,
     const T* __restrict__ recvbuf,
     size_t padded_x, size_t padded_y, size_t padded_z,
@@ -1111,7 +1113,7 @@ __global__ void fill_invalid_kernel(T* buf, size_t n, T val) {
 
 
 template <typename T>
-void exchange_ghost_layers_cuda_aware(double* data, uint8_t* delta_counter, double *input_data_host, double bound, int* edits, 
+void exchange_ghost_layers_cuda_aware(DataType* data, uint8_t* delta_counter, DataType *input_data_host, double bound, int* edits, 
                                       size_t padded_x, size_t padded_y, size_t padded_z,
                                       size_t width_host, size_t height_host, size_t depth_host,
                                       size_t local_x, size_t local_y, size_t local_z, 
@@ -1288,7 +1290,7 @@ void exchange_ghost_layers_cuda_aware(double* data, uint8_t* delta_counter, doub
 
 __global__ void pack_modified_sparse_kernel(
     const int* __restrict__ edits,
-    const double* __restrict__ data,
+    const DataType* __restrict__ data,
     size_t padded_x, size_t padded_y, size_t padded_z,
     size_t width_host, size_t height_host,
     int offset_x, int offset_y, int offset_z,
@@ -1320,7 +1322,7 @@ __global__ void pack_modified_sparse_kernel(
 }
 
 __global__ void unpack_sparse_modified_kernel(
-    double* __restrict__ data,
+    DataType* __restrict__ data,
     uint8_t* __restrict__ delta_counter,
     int* __restrict__ edits,
     const int* __restrict__ index_buf,
@@ -1359,9 +1361,14 @@ void compressLocalDataZFP(const std::string file_path, std::string cpfilename, c
 {
     size_t data_size = width_host * height_host * depth_host;
 
-    // --- ZFP setup ---
-    zfp_type type = (std::is_same<T, double>::value) ? zfp_type_double : zfp_type_float;
-    zfp_field* field = zfp_field_3d(const_cast<T*>(input_data_host), type, width_host, height_host, depth_host);
+    std::vector<float> input_data_float;
+    void* input_ptr = const_cast<T*>(input_data_host);
+    zfp_type type = pmsz::zfp_type_for<T>();
+    if constexpr (std::is_same_v<T, uint16_t>) {
+        input_data_float = pmsz::to_zfp_float_buffer(input_data_host, data_size);
+        input_ptr = input_data_float.data();
+    }
+    zfp_field* field = zfp_field_3d(input_ptr, type, width_host, height_host, depth_host);
 
     zfp_stream* zfp = zfp_stream_open(nullptr);
     zfp_stream_set_accuracy(zfp, tolerance); 
@@ -1402,9 +1409,16 @@ void compressLocalDataZFP(const std::string file_path, std::string cpfilename, c
         }
     }
 
-    // --- Decompression ---
-    decp_data_host = new T[data_size];
-    zfp_field* field_decomp = zfp_field_3d(decp_data_host, type, width_host, height_host, depth_host);
+    std::vector<float> decp_data_float;
+    void* decomp_ptr = nullptr;
+    if constexpr (std::is_same_v<T, uint16_t>) {
+        decp_data_float.resize(data_size);
+        decomp_ptr = decp_data_float.data();
+    } else {
+        decp_data_host = new T[data_size];
+        decomp_ptr = decp_data_host;
+    }
+    zfp_field* field_decomp = zfp_field_3d(decomp_ptr, type, width_host, height_host, depth_host);
 
     stream_rewind(stream);
     start = std::chrono::high_resolution_clock::now();
@@ -1414,6 +1428,12 @@ void compressLocalDataZFP(const std::string file_path, std::string cpfilename, c
     }
     end = std::chrono::high_resolution_clock::now();
     duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Decompression time: " << double(duration.count()) / 1000.0 << " s" << std::endl;
+
+    if constexpr (std::is_same_v<T, uint16_t>) {
+        decp_data_host = new T[data_size];
+        pmsz::from_zfp_float_buffer(decp_data_float.data(), data_size, decp_data_host);
+    }
 
     // Save decompressed data if needed
     if (processData != 0) {
@@ -1423,13 +1443,14 @@ void compressLocalDataZFP(const std::string file_path, std::string cpfilename, c
         } else {
             outFile.write(reinterpret_cast<const char*>(decp_data_host), data_size * sizeof(T));
             outFile.close();
+            std::cout << "Decompressed data saved to " << decpfilename << std::endl;
         }
     }
 
     // --- Compression Ratio ---
     std::uintmax_t original_dataSize = std::filesystem::file_size(file_path);
     double cr = double(original_dataSize) / double(zfpsize);
-    std::cout << "Data read, compressed, and decompressed successfully "<< std::endl;
+    std::cout << "Data read, compressed, and decompressed successfully"<< std::endl;
 
     // --- Cleanup ---
     zfp_field_free(field);
@@ -1453,6 +1474,7 @@ void compressLocalDataZFP_coreOnly(const std::string file_path,
     size_t core_size = core_x * core_y * core_z;
     std::cout << "Full block size: " << full_size << ", core size: " << core_size << std::endl;
 
+    
     T* core_buffer = new T[core_size];
     for (size_t z = 0; z < core_z; z++) {
         for (size_t y = 0; y < core_y; y++) {
@@ -1465,9 +1487,15 @@ void compressLocalDataZFP_coreOnly(const std::string file_path,
         }
     }
 
-
-    zfp_type type = (std::is_same<T, double>::value) ? zfp_type_double : zfp_type_float;
-    zfp_field* field = zfp_field_3d(core_buffer, type, core_x, core_y, core_z);
+    
+    std::vector<float> core_buffer_float;
+    void* core_ptr = core_buffer;
+    zfp_type type = pmsz::zfp_type_for<T>();
+    if constexpr (std::is_same_v<T, uint16_t>) {
+        core_buffer_float = pmsz::to_zfp_float_buffer(core_buffer, core_size);
+        core_ptr = core_buffer_float.data();
+    }
+    zfp_field* field = zfp_field_3d(core_ptr, type, core_x, core_y, core_z);
 
     zfp_stream* zfp = zfp_stream_open(nullptr);
     zfp_stream_set_accuracy(zfp, tolerance);
@@ -1480,7 +1508,7 @@ void compressLocalDataZFP_coreOnly(const std::string file_path,
     zfp_stream_set_bit_stream(zfp, stream);
     zfp_stream_rewind(zfp);
 
-
+    
     auto start = std::chrono::high_resolution_clock::now();
     size_t zfpsize = zfp_compress(zfp, field);
     auto end = std::chrono::high_resolution_clock::now();
@@ -1495,16 +1523,30 @@ void compressLocalDataZFP_coreOnly(const std::string file_path,
         outFile1.close();
     }
 
-  
-    T* core_decomp = new T[core_size];
-    zfp_field* field_decomp = zfp_field_3d(core_decomp, type, core_x, core_y, core_z);
+    std::vector<float> core_decomp_float;
+    T* core_decomp = nullptr;
+    void* core_decomp_ptr = nullptr;
+    if constexpr (std::is_same_v<T, uint16_t>) {
+        core_decomp_float.resize(core_size);
+        core_decomp_ptr = core_decomp_float.data();
+    } else {
+        core_decomp = new T[core_size];
+        core_decomp_ptr = core_decomp;
+    }
+    zfp_field* field_decomp = zfp_field_3d(core_decomp_ptr, type, core_x, core_y, core_z);
 
     stream_rewind(stream);
     start = std::chrono::high_resolution_clock::now();
     zfp_decompress(zfp, field_decomp);
     end = std::chrono::high_resolution_clock::now();
+    std::cout << "Decompression time: " << std::chrono::duration<double>(end - start).count() << " s" << std::endl;
 
-   
+    if constexpr (std::is_same_v<T, uint16_t>) {
+        core_decomp = new T[core_size];
+        pmsz::from_zfp_float_buffer(core_decomp_float.data(), core_size, core_decomp);
+    }
+
+    
     if (!decp_data_host) decp_data_host = new T[full_size];
     for (size_t z = 0; z < core_z; z++) {
         for (size_t y = 0; y < core_y; y++) {
@@ -1524,12 +1566,12 @@ void compressLocalDataZFP_coreOnly(const std::string file_path,
         outFile.close();
     }
 
-    
+    // --- 7. CR ---
     std::uintmax_t original_dataSize = std::filesystem::file_size(file_path);
     double cr = double(original_dataSize) / double(zfpsize);
     std::cout << "CR (core-only compressed): " << cr << std::endl;
 
-    
+    // --- Cleanup ---
     delete[] core_buffer;
     delete[] core_decomp;
     zfp_field_free(field);
@@ -1545,16 +1587,13 @@ void compressLocalData_coreOnly(const std::string file_path,
     const T *input_data_host, T *&decp_data_host,
     size_t width_host, size_t height_host, size_t depth_host, // full size with ghost
                                             // ghost thickness
-    T &bound, std::string decpfilename, int rank, int processData = 0)
+    double bound, std::string decpfilename, int rank, int processData = 0)
 {
+    
     size_t core_x = width_host  - 2 * HALO;
     size_t core_y = height_host - 2 * HALO;
     size_t core_z = depth_host  - 2 * HALO;
     size_t core_size = core_x * core_y * core_z;
-
-    std::cout << "Full block = " << width_host << "×" << height_host << "×" << depth_host
-              << ", core = " << core_x << "×" << core_y << "×" << core_z
-              << ", core size = " << core_size << std::endl;
 
     T* core_buffer = new T[core_size];
     for (size_t z = 0; z < core_z; z++) {
@@ -1568,12 +1607,12 @@ void compressLocalData_coreOnly(const std::string file_path,
         }
     }
 
+    
     auto start = std::chrono::high_resolution_clock::now();
     SZ3::Config conf(static_cast<int>(core_z), static_cast<int>(core_y), static_cast<int>(core_x));
     conf.errorBoundMode = SZ3::EB_ABS;
     conf.absErrorBound = bound;
 
-    size_t cmpSize = 0;
     char *compressedData = SZ_compress(conf, core_buffer, cmpSize);
 
     auto end = std::chrono::high_resolution_clock::now();
@@ -1586,11 +1625,15 @@ void compressLocalData_coreOnly(const std::string file_path,
         outFile1.close();
     }
 
+    
     T* core_decomp = new T[core_size];
     start = std::chrono::high_resolution_clock::now();
     SZ_decompress(conf, compressedData, cmpSize, core_decomp);
     end = std::chrono::high_resolution_clock::now();
+    std::cout << "Decompression time: "
+              << std::chrono::duration<double>(end - start).count() << " s" << std::endl;
 
+    
     size_t full_size = width_host * height_host * depth_host;
     if (!decp_data_host) decp_data_host = new T[full_size];
     for (size_t z = 0; z < core_z; z++) {
@@ -1611,10 +1654,10 @@ void compressLocalData_coreOnly(const std::string file_path,
         outFile.close();
     }
 
+
     std::uintmax_t original_dataSize = std::filesystem::file_size(file_path);
     double cr = double(original_dataSize) / cmpSize;
-    std::cout << "CR (core-only compressed): " << cr << std::endl;
-
+    
     // === Cleanup ===
     delete[] core_buffer;
     delete[] core_decomp;
@@ -1624,7 +1667,7 @@ void compressLocalData_coreOnly(const std::string file_path,
 template <typename T>
 void compressLocalData(const std::string file_path, std::string cpfilename, const std::string filename,  
     const T *input_data_host, T *&decp_data_host, size_t width_host, size_t height_host, size_t depth_host, 
-    T &bound, std::string decpfilename,int rank, int processData = 0) {
+    double bound, std::string decpfilename,int rank, int processData = 0) {
 
     auto start = std::chrono::high_resolution_clock::now();
     SZ3::Config conf(static_cast<int>(depth_host), static_cast<int>(height_host),
@@ -1636,7 +1679,6 @@ void compressLocalData(const std::string file_path, std::string cpfilename, cons
     conf.absErrorBound = bound; 
 
     size_t data_size = width_host * height_host * depth_host;
-    
     char *compressedData = SZ_compress(conf, input_data_host, cmpSize);
 
     decp_data_host = new T[data_size];
@@ -1707,6 +1749,11 @@ void getdata(const std::string &filename, T *&input_data_host, size_t data_size)
     }
     minValue = *std::min_element(input_data_host, input_data_host + data_size);
     maxValue = *std::max_element(input_data_host, input_data_host + data_size);
+    if constexpr (std::is_same_v<T, uint16_t>) {
+        if (maxValue >= static_cast<double>(pmsz::invalid_val<uint16_t>())) {
+            throw std::runtime_error("uint16_t dataset contains reserved halo sentinel value 65535");
+        }
+    }
 
     // cudaMemcpy(input_data_host, h_buffer.data(), data_size * sizeof(uint16_t), cudaMemcpyHostToDevice);    
     // std::cout << "Data read, compressed, and decompressed successfully." << std::endl;
@@ -2648,10 +2695,10 @@ void gather_cost_sparse(std::string file_path, std::string filename, T* decp_dat
 }
 
 
-__global__ void warmup_kernel(double* data, int N) {
+__global__ void warmup_kernel(DataType* data, int N) {
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
     if (idx < N) {
-        data[idx] = data[idx] * 2.0 + 1.0;
+        data[idx] = static_cast<DataType>(data[idx] + static_cast<DataType>(1));
     }
 }
 
@@ -2685,6 +2732,7 @@ int main(int argc, char** argv) {
 
     
     std::cout << std::fixed << std::setprecision(16);
+    if (rank == 0) std::cout << "Data type mode: " << pmsz::kDataTypeName << std::endl;
     std::string dimension = argv[1];
     
     
@@ -2779,9 +2827,9 @@ int main(int argc, char** argv) {
     if (cart_comm != MPI_COMM_NULL) MPI_Comm_rank(cart_comm, &cart_rank);
 
     int N = 1 << 20;  // 1M doubles
-    double* d_data = nullptr;
-    cudaMalloc(&d_data, N * sizeof(double));
-    cudaMemset(d_data, 0, N * sizeof(double));
+    DataType* d_data = nullptr;
+    cudaMalloc(&d_data, N * sizeof(DataType));
+    cudaMemset(d_data, 0, N * sizeof(DataType));
 
     // 1. GPU kernel warm-up
     dim3 block(256);
@@ -2816,12 +2864,12 @@ int main(int argc, char** argv) {
     double* d_oriData = nullptr;
     double* d_decData = nullptr;
     unsigned char* d_cmpBytes = nullptr;
-    double* decompressed_host_data = nullptr;
-    double *input_data = nullptr;
-    double *decp_data = nullptr;
-    double* input_data_host = new double[data_size];
-    double* decp_data_host = new double[data_size];
-    double* decp_data_copy_host = new double[data_size];
+    DataType* decompressed_host_data = nullptr;
+    DataType *input_data = nullptr;
+    DataType *decp_data = nullptr;
+    DataType* input_data_host = new DataType[data_size];
+    DataType* decp_data_host = new DataType[data_size];
+    DataType* decp_data_copy_host = new DataType[data_size];
     
     
     std::string decpfilename = "../datasets/decp_"+filename+"_"+compressor_id+'_'+std::to_string(bound)+".bin";
@@ -2833,20 +2881,20 @@ int main(int argc, char** argv) {
     if(rank == 0 && compression == 1 && compression_mode == 0){
         double range  = bound;
         
-        input_data = new double[num_Elements];
-        getdata<double>(file_path, input_data, num_Elements);        
+        input_data = new DataType[num_Elements];
+        getdata<DataType>(file_path, input_data, num_Elements);        
         std::ostringstream oss1;
         oss1 << std::scientific << std::setprecision(17) << bound;
        
         cpfilename = "../datasets/compressed_"+filename+"_"+std::to_string(bound)+".sz";
         if(compressor_id == "sz3") {
-            compressLocalData<double>(file_path, cpfilename, filename, input_data, decp_data, width_host, height_host, depth_host, bound, decpfilename, rank, 1);
+            compressLocalData<DataType>(file_path, cpfilename, filename, input_data, decp_data, width_host, height_host, depth_host, bound, decpfilename, rank, 1);
         }
         else if(compressor_id=="zfp"){
             auto start = std::chrono::high_resolution_clock::now();
             cpfilename = "../datasets/compressed_"+filename+"_"+std::to_string(bound)+".zfp";
             
-            compressLocalDataZFP<double>(file_path, cpfilename, filename, input_data_host, decp_data_host, padded_x, padded_y, padded_z, bound, decpfilename, rank, 1);
+            compressLocalDataZFP<DataType>(file_path, cpfilename, filename, input_data_host, decp_data_host, padded_x, padded_y, padded_z, bound, decpfilename, rank, 1);
             
         }
     }
@@ -2873,17 +2921,17 @@ int main(int argc, char** argv) {
     if(rank == 0) dataStart = MPI_Wtime();
 
 
-    read_subblock<double>(file_path.c_str(),
+    read_subblock<DataType>(file_path.c_str(),
                    offset_x, offset_y, offset_z,
                    local_x, local_y, local_z,
                    global_x, global_y, global_z,
                    input_data_host);
     MPI_Barrier(cart_comm);
     
-    exchange_ghost_layers<double>(input_data_host, padded_x, padded_y, padded_z, local_x, local_y, local_z, cart_comm, dims, rank);
+    exchange_ghost_layers<DataType>(input_data_host, padded_x, padded_y, padded_z, local_x, local_y, local_z, cart_comm, dims, rank);
     
-    if(compression_mode == 1 && compressor_id == "sz3") compressLocalData_coreOnly<double>(file_path, cpfilename, filename, input_data_host, decp_data_host, padded_x, padded_y, padded_z, bound, decpfilename, rank);
-    else if(compression_mode == 1 && compressor_id == "zfp") compressLocalDataZFP_coreOnly<double>(file_path, cpfilename, filename, input_data_host, decp_data_host, padded_x, padded_y, padded_z, local_x, local_y, local_z, bound, decpfilename, rank);
+    if(compression_mode == 1 && compressor_id == "sz3") compressLocalData_coreOnly<DataType>(file_path, cpfilename, filename, input_data_host, decp_data_host, padded_x, padded_y, padded_z, bound, decpfilename, rank);
+    else if(compression_mode == 1 && compressor_id == "zfp") compressLocalDataZFP_coreOnly<DataType>(file_path, cpfilename, filename, input_data_host, decp_data_host, padded_x, padded_y, padded_z, local_x, local_y, local_z, bound, decpfilename, rank);
 
     cudaError_t err = cudaMalloc(&DS_M, data_size * sizeof(int));
     err = cudaMalloc(&dec_DS_M, data_size * sizeof(int));
@@ -2911,8 +2959,8 @@ int main(int argc, char** argv) {
     }
 
     
-    double *device_input, *device_decp, *device_decp_copy;
-    size_t local_bytes = data_size * sizeof(double);
+    DataType *device_input, *device_decp, *device_decp_copy;
+    size_t local_bytes = data_size * sizeof(DataType);
     err = cudaMalloc((void**)&device_input, local_bytes);
     if (err != cudaSuccess) {
         printf("Rank %d: cudaMalloc failed Malloc for device_input: %s\n", rank, cudaGetErrorString(err));
@@ -2923,9 +2971,9 @@ int main(int argc, char** argv) {
     cudaMalloc((void**)&device_decp, local_bytes);
     cudaMalloc((void**)&device_decp_copy, local_bytes);
     
-    if(compression_mode == 0) read_subblock<double>(decpfilename.c_str(), offset_x, offset_y, offset_z, local_x, local_y, local_z, global_x, global_y, global_z, decp_data_host);
+    if(compression_mode == 0) read_subblock<DataType>(decpfilename.c_str(), offset_x, offset_y, offset_z, local_x, local_y, local_z, global_x, global_y, global_z, decp_data_host);
     MPI_Barrier(cart_comm);
-    exchange_ghost_layers<double>(decp_data_host, padded_x, padded_y, padded_z, local_x, local_y, local_z, cart_comm, dims, rank);
+    exchange_ghost_layers<DataType>(decp_data_host, padded_x, padded_y, padded_z, local_x, local_y, local_z, cart_comm, dims, rank);
     err = cudaMemcpy(device_input, input_data_host, local_bytes, cudaMemcpyHostToDevice);
 
     
@@ -2937,7 +2985,7 @@ int main(int argc, char** argv) {
 
 
 
-    std::memcpy(decp_data_copy_host, decp_data_host, data_size * sizeof(double));
+    std::memcpy(decp_data_copy_host, decp_data_host, data_size * sizeof(DataType));
     
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
@@ -2973,7 +3021,7 @@ int main(int argc, char** argv) {
     dim3 gridSize((data_size + blockSize.x - 1) / blockSize.x);
 
     
-    c_loops<double>(data_size, device_input, device_decp, padded_x, 
+    c_loops<DataType>(data_size, device_input, device_decp, padded_x, 
         padded_y, padded_z, depth_host, rank, width_host, 
         height_host, bound, local_x, local_y, local_z, dims, cart_comm, DS_M, AS_M, de_direction_as, de_direction_ds, edits, q, or_types, 0,
         sendbuff_right, sendbuff_left, sendbuff_top, sendbuff_bottom, offset_x, offset_y, offset_z, size, uTh, lTh, iteStep
@@ -3029,14 +3077,14 @@ int main(int argc, char** argv) {
     cudaMemcpy(decp_data_host, device_decp, local_bytes, cudaMemcpyDeviceToHost);
     cudaDeviceSynchronize();
 
-    std::vector<double> core(local_x * local_y * local_z);
-    std::vector<double> global, global_copy;
+    std::vector<DataType> core(local_x * local_y * local_z);
+    std::vector<DataType> global, global_copy;
 
         
 
 
     if(weakscaling == 0) {
-        gather_cost_sparse<double>(file_path, filename, device_decp, decp_data_host, decp_data_copy_host, device_decp_copy,
+        gather_cost_sparse<DataType>(file_path, filename, device_decp, decp_data_host, decp_data_copy_host, device_decp_copy,
           device_input, global.data(), global_copy.data(), compressor_id, delta_counter,
           q, bound, num_Elements, local_x, local_y, local_z,
           padded_x, padded_y, padded_z, width_host, height_host, depth_host, rank, size, delta,
@@ -3075,7 +3123,7 @@ int main(int argc, char** argv) {
     MPI_Reduce(&ite, &global_max, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
 
         
-    decp_data = new double[num_Elements];
+    decp_data = new DataType[num_Elements];
 
     
     cudaFree(device_input);
@@ -3089,7 +3137,7 @@ int main(int argc, char** argv) {
 
     
     if(check_consistency == 1 && rank == 0){
-        double *device_input_all, *device_decp_all;
+        DataType *device_input_all, *device_decp_all;
         dim3 blockSize(256);
         dim3 gridSize((num_Elements + blockSize.x - 1) / blockSize.x);
         
@@ -3098,11 +3146,11 @@ int main(int argc, char** argv) {
         err = cudaMalloc(&dec_DS_M, num_Elements * sizeof(int));
         err = cudaMalloc(&AS_M, num_Elements * sizeof(int));
         err = cudaMalloc(&dec_AS_M, num_Elements * sizeof(int));
-        err = cudaMalloc((void**)&device_input_all, num_Elements * sizeof(double));
-        err = cudaMalloc((void**)&device_decp_all, num_Elements * sizeof(double));
+        err = cudaMalloc((void**)&device_input_all, num_Elements * sizeof(DataType));
+        err = cudaMalloc((void**)&device_decp_all, num_Elements * sizeof(DataType));
         
-        cudaMemcpy(device_input_all, input_data, num_Elements * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(device_decp_all, global.data(), num_Elements * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(device_input_all, input_data, num_Elements * sizeof(DataType), cudaMemcpyHostToDevice);
+        cudaMemcpy(device_decp_all, global.data(), num_Elements * sizeof(DataType), cudaMemcpyHostToDevice);
         cudaDeviceSynchronize();
 
         std::ofstream fout("../datasets/fixed_" + filename + std::to_string(bound) + "_" + compressor_id+ ".bin", std::ios::out | std::ios::binary);
@@ -3112,7 +3160,7 @@ int main(int argc, char** argv) {
         }
 
        
-        fout.write(reinterpret_cast<const char*>(global.data()), global.size() * sizeof(double));
+        fout.write(reinterpret_cast<const char*>(global.data()), global.size() * sizeof(DataType));
 
         fout.close();
 
@@ -3121,7 +3169,7 @@ int main(int argc, char** argv) {
             fflush(stdout);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
-        iscriticle<double><<<gridSize, blockSize>>>(DS_M, AS_M, nullptr, nullptr, nullptr, device_input_all, device_input_all, edits, nullptr,
+        iscriticle<DataType><<<gridSize, blockSize>>>(DS_M, AS_M, nullptr, nullptr, nullptr, device_input_all, device_input_all, edits, nullptr,
             width_host, height_host, depth_host, num_Elements, or_types, offset_x, offset_y, offset_z, width_host, height_host, rank, nullptr, q, bound, delta, ite, uTh, lTh, 1, 1, 1);
         err = cudaDeviceSynchronize();
         if (err != cudaSuccess) {
@@ -3129,7 +3177,7 @@ int main(int argc, char** argv) {
             fflush(stdout);
             MPI_Abort(MPI_COMM_WORLD, -1);
         }
-        iscriticle<double><<<gridSize, blockSize>>>(dec_DS_M, dec_AS_M, nullptr, nullptr, nullptr, device_decp_all, device_decp_all, edits, nullptr, 
+        iscriticle<DataType><<<gridSize, blockSize>>>(dec_DS_M, dec_AS_M, nullptr, nullptr, nullptr, device_decp_all, device_decp_all, edits, nullptr, 
             width_host, height_host, depth_host, num_Elements, or_types, offset_x, offset_y, offset_z, width_host, height_host, rank, nullptr, q, bound, delta, ite, uTh, lTh, 1, 1, 1);
         err = cudaDeviceSynchronize();
         if (err != cudaSuccess) {
